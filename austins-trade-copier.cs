@@ -1,3 +1,4 @@
+// TradeCopier with per-target cross-micro checkboxes and ratio support
 #region Using declarations
 using System;
 using System.Windows;
@@ -16,456 +17,314 @@ using NinjaTrader.Core.FloatingPoint;
 using NinjaTrader.NinjaScript.DrawingTools;
 #endregion
 
-//This namespace holds Add ons in this folder and is required. Do not change it.
 namespace NinjaTrader.NinjaScript.AddOns
 {
-    public class TradeCopier : NinjaTrader.NinjaScript.AddOnBase
-    {
-        private TradeCopierWindow window;
+	public class TradeCopier : NinjaTrader.NinjaScript.AddOnBase
+	{
+		private TradeCopierWindow window;
 
-        protected override void OnStateChange()
-        {
-            if (State == State.SetDefaults)
-            {
-                Description = "Multi-Account Trade Copier Addon";
-                Name = "Austin's Trade Copier";
-            }
-            else if (State == State.Active)
-            {
-                if (window == null || !window.IsVisible)
-                {
-                    window = new TradeCopierWindow();
-                    window.Show();
-                }
-                else
-                {
-                    window.Focus();
-                }
-            }
-            else if (State == State.Terminated)
-            {
-                if (window != null)
-                {
-                    window.Close();
-                    window = null;
-                }
-            }
-        }
-
-        protected override void OnWindowCreated(Window window)
-        {
-            if (window is TradeCopierWindow)
-                this.window = window as TradeCopierWindow;
-        }
-
-        protected override void OnWindowDestroyed(Window window)
-        {
-            if (window is TradeCopierWindow)
-                this.window = null;
-        }
-    }
+		protected override void OnStateChange()
+		{
+			if (State == State.SetDefaults)
+			{
+				Description = "Multi-Account Trade Copier Addon";
+				Name = "Austin's Trade Copier";
+			}
+			else if (State == State.Active)
+			{
+				if (window == null || !window.IsVisible)
+				{
+					window = new TradeCopierWindow();
+					window.Show();
+				}
+				else
+				{
+					window.Focus();
+				}
+			}
+			else if (State == State.Terminated)
+			{
+				if (window != null)
+				{
+					window.Close();
+					window = null;
+				}
+			}
+		}
+	}
 
 	public class TradeCopierWindow : NTWindow
 	{
-	    private Account leadAccount;
-	    private List<Account> targetAccounts = new List<Account>();
-	    private bool isCopying = false;
-	    private ComboBox leadAccountComboBox;
-	    private StackPanel targetAccountsPanel;
-	    private Button addAccountButton;
-	    private Button startStopButton;
-	    private Button flattenAllButton; // New button for flattening all accounts
+		private Account leadAccount;
+		private ComboBox leadAccountComboBox;
+		private StackPanel targetAccountsPanel;
+		private Button addAccountButton;
+		private Button startStopButton;
+		private Button flattenAllButton;
+		private bool isCopying = false;
 
-	    public TradeCopierWindow()
-	    {
-	        Caption = "Austin's Trade Copier";
-	        Width = 400;
-	        Height = 450; // Increased height to accommodate the new button
-	        
-	        CreateUI();
-	        RefreshAccountList();
-
-	        Account.AccountStatusUpdate += OnAccountStatusUpdate;
-
-	        Closing += TradeCopierWindow_Closing;
-	    }
-
-	    private void CreateUI()
-	    {
-	        var grid = new Grid();
-	        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Lead Account
-	        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Target Accounts Label
-	        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Target Accounts List
-	        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Add Target Account Button
-	        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Start/Stop Button
-	        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // Flatten All Accounts Button
-
-
-		    // Lead Account Section
-		    var leadAccountPanel = new StackPanel { Margin = new Thickness(10) };
-		    var leadAccountLabel = new Label { 
-		        Content = "Lead Account:", 
-		        FontWeight = FontWeights.Bold,
-		        Foreground = Brushes.White,
-		    };
-		    leadAccountPanel.Children.Add(leadAccountLabel);
-
-		    leadAccountComboBox = new ComboBox { 
-		        Margin = new Thickness(0, 5, 0, 10),
-		        Padding = new Thickness(5),
-		        MinWidth = 200
-		    };
-		    leadAccountComboBox.SelectionChanged += LeadAccountComboBox_SelectionChanged;
-		    leadAccountPanel.Children.Add(leadAccountComboBox);
-
-		    Grid.SetRow(leadAccountPanel, 0);
-		    grid.Children.Add(leadAccountPanel);
-
-		    // Target Accounts Label
-		    var targetAccountsLabel = new Label { 
-		        Content = "Target Accounts:", 
-		        FontWeight = FontWeights.Bold,
-		        Foreground = Brushes.White,
-		        Margin = new Thickness(10, 0, 10, 5)
-		    };
-		    Grid.SetRow(targetAccountsLabel, 1);
-		    grid.Children.Add(targetAccountsLabel);
-
-		    // Target Accounts Panel
-		    targetAccountsPanel = new StackPanel { Margin = new Thickness(10, 0, 10, 10) };
-		    var scrollViewer = new ScrollViewer { 
-		        Content = targetAccountsPanel,
-		        VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-		        Margin = new Thickness(10, 0, 10, 10)
-		    };
-		    Grid.SetRow(scrollViewer, 2);
-		    grid.Children.Add(scrollViewer);
-
-		    // Add Target Account Button
-		    addAccountButton = new Button
-		    {
-		        Content = "Add Target Account",
-		        Padding = new Thickness(10, 5, 10, 5),
-		        Margin = new Thickness(10),
-		        HorizontalAlignment = HorizontalAlignment.Left
-		    };
-		    addAccountButton.Click += AddAccountButton_Click;
-		    Grid.SetRow(addAccountButton, 3);
-		    grid.Children.Add(addAccountButton);
-
-		    // Start/Stop Button
-		    startStopButton = new Button
-		    {
-		        Content = "Start Copying",
-		        Padding = new Thickness(20, 10, 20, 10),
-		        Margin = new Thickness(10),
-		        HorizontalAlignment = HorizontalAlignment.Stretch
-		    };
-		    startStopButton.Click += StartStopButton_Click;
-		    Grid.SetRow(startStopButton, 4);
-		    grid.Children.Add(startStopButton);
-			
-	        // Flatten All Accounts Button
-	        flattenAllButton = new Button
-	        {
-	            Content = "Flatten All Accounts",
-	            Padding = new Thickness(20, 10, 20, 10),
-	            Margin = new Thickness(10),
-	            HorizontalAlignment = HorizontalAlignment.Stretch
-	        };
-	        flattenAllButton.Click += FlattenAllButton_Click;
-	        Grid.SetRow(flattenAllButton, 5);
-	        grid.Children.Add(flattenAllButton);
-
-		    Content = grid;
-
-		    // Set window properties
-		    Width = 400;
-		    Height = 500;
-		    WindowStartupLocation = WindowStartupLocation.CenterScreen;
-		    Background = Brushes.DarkGray;
-		}
-		
-	    private void AddAccountButton_Click(object sender, RoutedEventArgs e)
-	    {
-	        if (targetAccountsPanel == null)
-	        {
-	            MessageBox.Show("Error: Target accounts panel not initialized. Please restart the application.");
-	            return;
-	        }
-
-	        var horizontalStackPanel = new StackPanel { 
-	            Orientation = Orientation.Horizontal,
-	            Margin = new Thickness(0, 0, 0, 5)
-	        };
-
-	        var newComboBox = new ComboBox
-	        {
-	            DisplayMemberPath = "Name",
-	            ItemsSource = leadAccountComboBox.ItemsSource,
-	            MinWidth = 200,
-	            Margin = new Thickness(0, 0, 5, 0)
-	        };
-	        newComboBox.SelectionChanged += TargetAccountComboBox_SelectionChanged;
-
-	        var removeButton = new Button
-	        {
-	            Content = "Remove",
-	            Width = 25,
-	            Height = 25,
-	            Background = Brushes.DarkGray,
-                Foreground = Brushes.Black
-	        };
-	        removeButton.Click += (s, args) =>
-	        {
-	            targetAccountsPanel.Children.Remove(horizontalStackPanel);
-	            TargetAccountComboBox_SelectionChanged(newComboBox, null);
-	        };
-
-	        horizontalStackPanel.Children.Add(newComboBox);
-	        horizontalStackPanel.Children.Add(removeButton);
-
-	        targetAccountsPanel.Children.Add(horizontalStackPanel);
-	    }		
-
-        private void RefreshAccountList()
-        {
-            var accounts = Account.All.ToList();
-            
-            NinjaTrader.Code.Output.Process("Total accounts found: " + accounts.Count, PrintTo.OutputTab1);
-
-            foreach (var account in accounts)
-            {
-                NinjaTrader.Code.Output.Process("Account: " + account.Name + ", Status: " + account.ConnectionStatus, PrintTo.OutputTab1);
-            }
-
-            try
-            {
-                accounts = accounts.Where(a => a.ConnectionStatus == ConnectionStatus.Connected).ToList();
-            }
-            catch (Exception ex)
-            {
-                NinjaTrader.Code.Output.Process("Error filtering accounts: " + ex.Message, PrintTo.OutputTab1);
-            }
-
-            NinjaTrader.Code.Output.Process("Connected accounts: " + accounts.Count, PrintTo.OutputTab1);
-
-            Dispatcher.InvokeAsync(() =>
-            {
-                leadAccountComboBox.ItemsSource = accounts;
-                leadAccountComboBox.DisplayMemberPath = "Name";
-
-                foreach (StackPanel sp in targetAccountsPanel.Children)
-                {
-                    var cb = sp.Children.OfType<ComboBox>().FirstOrDefault();
-                    if (cb != null)
-                    {
-                        var selectedAccount = cb.SelectedItem as Account;
-                        cb.ItemsSource = accounts;
-                        cb.SelectedItem = selectedAccount;
-                    }
-                }
-            });
-        }
-
-        private void OnAccountStatusUpdate(object sender, AccountStatusEventArgs e)
-        {
-            RefreshAccountList();
-        }
-
-        private void LeadAccountComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (leadAccount != null)
-            {
-                leadAccount.OrderUpdate -= OnOrderUpdate;
-            }
-            leadAccount = leadAccountComboBox.SelectedItem as Account;
-            if (leadAccount != null)
-            {
-                leadAccount.OrderUpdate += OnOrderUpdate;
-            }
-        }
-
-		private void TargetAccountComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+		private class TargetRow
 		{
-		    targetAccounts.Clear();
-		    foreach (StackPanel sp in targetAccountsPanel.Children)
-		    {
-		        var cb = sp.Children.OfType<ComboBox>().FirstOrDefault();
-		        if (cb != null && cb.SelectedItem != null)
-		        {
-		            Account account = cb.SelectedItem as Account;
-		            if (account != null)
-		            {
-		                targetAccounts.Add(account);
-		            }
-		        }
-		    }
+			public Account Account;
+			public CheckBox CrossToMicro;
+			public TextBox RatioBox;
 		}
 
-        private void StartStopButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (!isCopying)
-                StartCopyingTrades();
-            else
-                StopCopyingTrades();
-        }
+		private readonly List<TargetRow> targetRows = new List<TargetRow>();
 
-	    private void StartCopyingTrades()
-	    {
-	        if (leadAccount == null || targetAccounts.Count == 0)
-	        {
-	            MessageBox.Show("Please select a lead account and at least one target account.");
-	            return;
-	        }
+		public TradeCopierWindow()
+		{
+			Caption = "Austin's Trade Copier";
+			Width = 400;
+			Height = 550;
 
-	        if (targetAccounts.Contains(leadAccount))
-	        {
-	            MessageBox.Show("Lead account cannot be in the target accounts list.");
-	            return;
-	        }
+			CreateUI();
+			RefreshAccountList();
 
-	        isCopying = true;
-	        startStopButton.Content = "Stop Copying";
-	    }
+			Account.AccountStatusUpdate += OnAccountStatusUpdate;
+			Closing += TradeCopierWindow_Closing;
+		}
 
-	    private void StopCopyingTrades()
-	    {
-	        isCopying = false;
-	        startStopButton.Content = "Start Copying";
-	        FlattenAllPositions();
-	    }
+		private void CreateUI()
+		{
+			var grid = new Grid();
+			for (int i = 0; i < 6; i++)
+				grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-        private void OnOrderUpdate(object sender, OrderEventArgs args)
-        {
-            if (!isCopying || args.Order.Account != leadAccount || args.Order.OrderState != OrderState.Filled)
-            {
-                return;
-            }
+			// Lead
+			var leadPanel = new StackPanel { Margin = new Thickness(10) };
+			leadPanel.Children.Add(new Label { Content = "Lead Account:", FontWeight = FontWeights.Bold, Foreground = Brushes.White });
+			leadAccountComboBox = new ComboBox { Margin = new Thickness(0, 5, 0, 10), Padding = new Thickness(5), MinWidth = 200 };
+			leadAccountComboBox.SelectionChanged += LeadAccountComboBox_SelectionChanged;
+			leadPanel.Children.Add(leadAccountComboBox);
+			Grid.SetRow(leadPanel, 0);
+			grid.Children.Add(leadPanel);
 
-            Dispatcher.InvokeAsync(() => CopyOrderToTargetAccounts(args.Order));
-        }
+			grid.Children.Add(new Label { Content = "Target Accounts:", FontWeight = FontWeights.Bold, Foreground = Brushes.White, Margin = new Thickness(10, 0, 10, 5) });
+			Grid.SetRow(grid.Children[grid.Children.Count - 1], 1);
 
-        private void CopyOrderToTargetAccounts(Order sourceOrder)
-        {
-            foreach (var targetAccount in targetAccounts)
-            {
-                var newOrder = new Order
-                {
-                    Account = targetAccount,
-                    OrderType = sourceOrder.OrderType,
-                    Instrument = sourceOrder.Instrument,
-                    Quantity = sourceOrder.Filled,
-                    LimitPrice = sourceOrder.LimitPrice,
-                    StopPrice = sourceOrder.StopPrice,
-                    OrderAction = sourceOrder.OrderAction
-                };
+			targetAccountsPanel = new StackPanel { Margin = new Thickness(10, 0, 10, 10) };
+			var scroll = new ScrollViewer { Content = targetAccountsPanel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+			Grid.SetRow(scroll, 2);
+			grid.Children.Add(scroll);
 
-                try
-                {
-                    targetAccount.Submit(new[] { newOrder });
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show("Error submitting order to " + targetAccount.Name + ": " + ex.Message);
-                }
-            }
-        }
-		
-	    private void FlattenAllButton_Click(object sender, RoutedEventArgs e)
-	    {
-	        FlattenAllPositions();
-	    }
+			addAccountButton = new Button { Content = "Add Target Account", Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(10) };
+			addAccountButton.Click += AddAccountButton_Click;
+			Grid.SetRow(addAccountButton, 3);
+			grid.Children.Add(addAccountButton);
 
-	    private void FlattenAllPositions()
-	    {
-	        List<Account> accountsToFlatten = new List<Account>(targetAccounts);
-	        if (leadAccount != null)
-	        {
-	            accountsToFlatten.Add(leadAccount);
-	        }
+			startStopButton = new Button { Content = "Start Copying", Padding = new Thickness(10), Margin = new Thickness(10) };
+			startStopButton.Click += StartStopButton_Click;
+			Grid.SetRow(startStopButton, 4);
+			grid.Children.Add(startStopButton);
 
-	        foreach (var account in accountsToFlatten)
-	        {
-	            try
-	            {
-	                // Step 1: Cancel all active orders
-	                CancelAllOrders(account);
+			flattenAllButton = new Button { Content = "Flatten All Accounts", Padding = new Thickness(10), Margin = new Thickness(10) };
+			flattenAllButton.Click += FlattenAllButton_Click;
+			Grid.SetRow(flattenAllButton, 5);
+			grid.Children.Add(flattenAllButton);
 
-	                // Step 2: Close all open positions
-	                CloseAllPositions(account);
+			Content = grid;
+			Background = Brushes.DarkGray;
+		}
 
-	                // Step 3: Verify and force-close any remaining positions
-	                VerifyAndForceClosePositions(account);
+		private void AddAccountButton_Click(object sender, RoutedEventArgs e)
+		{
+			var row = new TargetRow();
 
-	                NinjaTrader.Code.Output.Process("Flattened all positions and canceled all orders for account: " + account.Name, PrintTo.OutputTab1);
-	            }
-	            catch (Exception ex)
-	            {
-	                NinjaTrader.Code.Output.Process("Error flattening positions for account " + account.Name + ": " + ex.Message, PrintTo.OutputTab1);
-	            }
-	        }
-	        MessageBox.Show("All positions have been flattened and active orders canceled.");
-	    }
+			var horizontalStackPanel = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 5) };
 
-	    private void CancelAllOrders(Account account)
-	    {
-	        foreach (Order order in account.Orders)
-	        {
-	            if (order.OrderState == OrderState.Working)
-	            {
-	                try
-	                {
-	                    account.Cancel(new[] { order });
-	                    NinjaTrader.Code.Output.Process("Canceled order for " + account.Name + ": " + order.Instrument.FullName + ", OrderAction: " + order.OrderAction + ", Quantity: " + order.Quantity, PrintTo.OutputTab1);
-	                }
-	                catch (Exception ex)
-	                {
-	                    NinjaTrader.Code.Output.Process("Error canceling order for account " + account.Name + ": " + ex.Message, PrintTo.OutputTab1);
-	                }
-	            }
-	        }
-	    }
+			var cb = new ComboBox
+			{
+				DisplayMemberPath = "Name",
+				ItemsSource = leadAccountComboBox.ItemsSource,
+				MinWidth = 140,
+				Margin = new Thickness(0, 0, 5, 0)
+			};
+			cb.SelectionChanged += (s, ev) => row.Account = cb.SelectedItem as Account;
 
-	    private void CloseAllPositions(Account account)
-	    {
-	        foreach (Position position in account.Positions)
-	        {
-	            if (position.Quantity != 0)
-	            {
-	                OrderAction closeAction = position.MarketPosition == MarketPosition.Long ? OrderAction.Sell : OrderAction.Buy;
-	                Order closeOrder = account.CreateOrder(position.Instrument, closeAction, OrderType.Market, TimeInForce.Day, Math.Abs(position.Quantity), 0, 0, string.Empty, "Close position", null);
-	                account.Submit(new[] { closeOrder });
-	                NinjaTrader.Code.Output.Process("Closing position for " + account.Name + ": " + position.Instrument.FullName + ", Quantity: " + position.Quantity, PrintTo.OutputTab1);
-	            }
-	        }
-	    }
+			var crossCheck = new CheckBox { Content = "Micro", Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center };
+			row.CrossToMicro = crossCheck;
 
-	    private void VerifyAndForceClosePositions(Account account)
-	    {
-	        // Wait briefly for previous orders to process
-	        System.Threading.Thread.Sleep(1000);
+			var ratioBox = new TextBox { Width = 30, Text = "10", Margin = new Thickness(0, 0, 5, 0) };
+			row.RatioBox = ratioBox;
 
-	        foreach (Position position in account.Positions)
-	        {
-	            if (position.Quantity != 0)
-	            {
-	                OrderAction closeAction = position.MarketPosition == MarketPosition.Long ? OrderAction.Sell : OrderAction.Buy;
-	                Order forceCloseOrder = account.CreateOrder(position.Instrument, closeAction, OrderType.Market, TimeInForce.Day, Math.Abs(position.Quantity), 0, 0, string.Empty, "Force close position", null);
-	                account.Submit(new[] { forceCloseOrder });
-	                NinjaTrader.Code.Output.Process("Force closing remaining position for " + account.Name + ": " + position.Instrument.FullName + ", Quantity: " + position.Quantity, PrintTo.OutputTab1);
-	            }
-	        }
-	    }
+			var removeButton = new Button { Content = "X", Width = 25, Height = 25 };
+			removeButton.Click += (s, args) => { targetRows.Remove(row); targetAccountsPanel.Children.Remove(horizontalStackPanel); };
 
-	    private void TradeCopierWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
-	    {
-	        StopCopyingTrades(); // This will call FlattenAllPositions
-	        if (leadAccount != null)
-	        {
-	            leadAccount.OrderUpdate -= OnOrderUpdate;
-	        }
-	        Account.AccountStatusUpdate -= OnAccountStatusUpdate;
-	    }
-    }
+			horizontalStackPanel.Children.Add(cb);
+			horizontalStackPanel.Children.Add(crossCheck);
+			horizontalStackPanel.Children.Add(ratioBox);
+			horizontalStackPanel.Children.Add(removeButton);
+
+			targetAccountsPanel.Children.Add(horizontalStackPanel);
+			targetRows.Add(row);
+		}
+
+		private void RefreshAccountList()
+		{
+			var accounts = Account.All.Where(a => a.ConnectionStatus == ConnectionStatus.Connected).ToList();
+			Dispatcher.InvokeAsync(() =>
+			{
+				leadAccountComboBox.ItemsSource = accounts;
+				foreach (var sp in targetAccountsPanel.Children.OfType<StackPanel>())
+				{
+					var cb = sp.Children.OfType<ComboBox>().FirstOrDefault();
+					if (cb != null)
+					{
+						var selected = cb.SelectedItem as Account;
+						cb.ItemsSource = accounts;
+						cb.SelectedItem = selected;
+					}
+				}
+			});
+		}
+
+		private void OnAccountStatusUpdate(object sender, AccountStatusEventArgs e) => RefreshAccountList();
+
+		private void LeadAccountComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+		{
+			if (leadAccount != null) leadAccount.OrderUpdate -= OnOrderUpdate;
+			leadAccount = leadAccountComboBox.SelectedItem as Account;
+			if (leadAccount != null) leadAccount.OrderUpdate += OnOrderUpdate;
+		}
+
+		private void StartStopButton_Click(object sender, RoutedEventArgs e)
+		{
+			if (!isCopying)
+			{
+				if (leadAccount == null || targetRows.Count == 0 || targetRows.Any(r => r.Account == leadAccount))
+				{
+					MessageBox.Show("Please select valid lead and target accounts.");
+					return;
+				}
+				isCopying = true;
+				startStopButton.Content = "Stop Copying";
+			}
+			else
+			{
+				isCopying = false;
+				startStopButton.Content = "Start Copying";
+				FlattenAllPositions();
+			}
+		}
+
+		private void OnOrderUpdate(object sender, OrderEventArgs args)
+		{
+			if (!isCopying || args.Order.Account != leadAccount || args.Order.OrderState != OrderState.Filled) return;
+			Dispatcher.InvokeAsync(() => CopyOrderToTargets(args.Order));
+		}
+
+		private void CopyOrderToTargets(Order sourceOrder)
+		{
+			foreach (var row in targetRows)
+			{
+				if (row.Account == null) continue;
+
+				Instrument instrumentToUse = sourceOrder.Instrument;
+				int qty = sourceOrder.Filled;
+
+				if (row.CrossToMicro.IsChecked == true)
+				{
+					try
+					{
+						string microSymbol = "M" + instrumentToUse.FullName;
+						instrumentToUse = Instrument.GetInstrument(microSymbol);
+						int ratio = int.TryParse(row.RatioBox.Text, out int r) ? r : 1;
+						qty *= ratio;
+					}
+					catch (Exception ex)
+					{
+						MessageBox.Show("Cross instrument error: " + ex.Message);
+						continue;
+					}
+				}
+
+				try
+				{
+					var newOrder = new Order
+					{
+						Account = row.Account,
+						OrderType = sourceOrder.OrderType,
+						Instrument = instrumentToUse,
+						Quantity = qty,
+						LimitPrice = sourceOrder.LimitPrice,
+						StopPrice = sourceOrder.StopPrice,
+						OrderAction = sourceOrder.OrderAction
+					};
+					row.Account.Submit(new[] { newOrder });
+				}
+				catch (Exception ex)
+				{
+					MessageBox.Show("Error submitting to " + row.Account.Name + ": " + ex.Message);
+				}
+			}
+		}
+
+		private void FlattenAllButton_Click(object sender, RoutedEventArgs e) => FlattenAllPositions();
+
+		private void FlattenAllPositions()
+		{
+			var accounts = targetRows.Select(r => r.Account).ToList();
+			if (leadAccount != null) accounts.Add(leadAccount);
+			foreach (var acct in accounts.Distinct())
+			{
+				CancelAllOrders(acct);
+				CloseAllPositions(acct);
+				VerifyAndForceClosePositions(acct);
+			}
+			MessageBox.Show("All positions flattened.");
+		}
+
+		private void CancelAllOrders(Account account)
+		{
+			foreach (Order o in account.Orders)
+			{
+				if (o.OrderState == OrderState.Working)
+				{
+					try { account.Cancel(new[] { o }); } catch { }
+				}
+			}
+		}
+
+		private void CloseAllPositions(Account account)
+		{
+			foreach (Position p in account.Positions)
+			{
+				if (p.Quantity != 0)
+				{
+					var action = p.MarketPosition == MarketPosition.Long ? OrderAction.Sell : OrderAction.Buy;
+					var close = account.CreateOrder(p.Instrument, action, OrderType.Market, TimeInForce.Day, Math.Abs(p.Quantity), 0, 0, string.Empty, "Close", null);
+					account.Submit(new[] { close });
+				}
+			}
+		}
+
+		private void VerifyAndForceClosePositions(Account account)
+		{
+			System.Threading.Thread.Sleep(1000);
+			foreach (Position p in account.Positions)
+			{
+				if (p.Quantity != 0)
+				{
+					var action = p.MarketPosition == MarketPosition.Long ? OrderAction.Sell : OrderAction.Buy;
+					var close = account.CreateOrder(p.Instrument, action, OrderType.Market, TimeInForce.Day, Math.Abs(p.Quantity), 0, 0, string.Empty, "Force Close", null);
+					account.Submit(new[] { close });
+				}
+			}
+		}
+
+		private void TradeCopierWindow_Closing(object sender, System.ComponentModel.CancelEventArgs e)
+		{
+			StopCopyingTrades();
+			if (leadAccount != null)
+				leadAccount.OrderUpdate -= OnOrderUpdate;
+			Account.AccountStatusUpdate -= OnAccountStatusUpdate;
+		}
+
+		private void StopCopyingTrades()
+		{
+			isCopying = false;
+			startStopButton.Content = "Start Copying";
+		}
+	}
 }
