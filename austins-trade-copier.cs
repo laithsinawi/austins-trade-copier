@@ -78,6 +78,8 @@ namespace NinjaTrader.NinjaScript.AddOns
 			Width = 400;
 			Height = 550;
 
+			Topmost = true; // 👈 This makes the window stay on top
+
 			CreateUI();
 			RefreshAccountList();
 
